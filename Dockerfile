@@ -15,11 +15,10 @@ RUN apt-get update && apt-get install -y \
 RUN wget -O /usr/local/bin/wgcf https://github.com/ViRb3/wgcf/releases/download/v2.2.18/wgcf_2.2.18_linux_amd64 && \
     chmod +x /usr/local/bin/wgcf
 
-# إنشاء سكربت لتشغيل WARP
+# إنشاء سكربت لتشغيل WARP وتوجيهه لأوروبا (سويسرا/ألمانيا)
 RUN echo '#!/bin/bash\n\
 wgcf register --accept-tos\n\
 wgcf generate\n\
-# تعديل المنفذ ليكون أوروبي (سويسرا/ألمانيا)\n\
 sed -i "s/Endpoint = .*/Endpoint = 162.159.192.1:2408/" wgcf-profile.conf\n\
 mkdir -p /etc/wireguard\n\
 cp wgcf-profile.conf /etc/wireguard/warp.conf\n\
@@ -31,6 +30,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# تشغيل WARP ثم التطبيق
 ENTRYPOINT ["/start.sh"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
