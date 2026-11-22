@@ -35,31 +35,9 @@ async def take_screenshot(page, chat_id, caption):
     await page.screenshot(path=screenshot_path)
     await send_telegram_photo(chat_id, screenshot_path, caption)
 
-async def get_working_swiss_proxy(chat_id):
-    url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=ch&ssl=all&anonymity=all"
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(url, timeout=10)
-            proxies = res.text.strip().split('\r\n')
-            proxies = [p for p in proxies if p and len(p) > 5]
-            
-            await send_telegram_message(chat_id, f"🔍 تم جلب {len(proxies)} بروكسي. جاري اختبارها للعثور على بروكسي يعمل...")
-            
-            for i, proxy in enumerate(proxies[:15]): # اختبار أول 15 بروكسي
-                try:
-                    test_res = await client.get("https://ipinfo.io/json", proxy=f"http://{proxy}", timeout=5)
-                    if test_res.status_code == 200:
-                        await send_telegram_message(chat_id, f"✅ وجدت بروكسي يعمل: {proxy}")
-                        return proxy
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    return None
-
 async def process_google_account(chat_id, email, password):
     global display
-    await send_telegram_message(chat_id, "بدء العملية سيدي. جاري تشغيل الشاشة الوهمية...")
+    await send_telegram_message(chat_id, "بدء العملية سيدي. جاري تشغيل الشاشة الوهمية والاتصال بـ WARP...")
     
     if display is None:
         display = Display(visible=0, size=(1920, 1080))
@@ -67,13 +45,12 @@ async def process_google_account(chat_id, email, password):
 
     async with async_playwright() as p:
         try:
-            proxy_ip = await get_working_swiss_proxy(chat_id)
-            
             browser = await p.chromium.launch(
                 headless=False, 
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             
+            # إعدادات المتصفح (بدون بروكسي، لأن WARP يعمل على مستوى النظام)
             context_args = {
                 "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 9 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                 "viewport": {"width": 412, "height": 915},
@@ -81,11 +58,6 @@ async def process_google_account(chat_id, email, password):
                 "has_touch": True,
                 "locale": "en-US"
             }
-            
-            if proxy_ip:
-                context_args["proxy"] = {"server": f"http://{proxy_ip}"}
-            else:
-                await send_telegram_message(chat_id, "⚠️ لم أجد بروكسي سويسري يعمل حالياً. سأكمل بدون بروكسي (قد لا تظهر النقاط لاحقاً).")
 
             context = await browser.new_context(**context_args)
             await context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
@@ -97,7 +69,7 @@ async def process_google_account(chat_id, email, password):
                 await page.wait_for_timeout(2000)
                 await take_screenshot(page, chat_id, "0. فحص الـ IP")
             except:
-                await send_telegram_message(chat_id, "⚠️ فشل في فحص الـ IP، قد يكون البروكسي بطيئاً. سنكمل...")
+                await send_telegram_message(chat_id, "⚠️ فشل في فحص الـ IP، سنكمل...")
             
             await page.goto("https://accounts.google.com/signin?hl=en", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
