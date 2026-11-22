@@ -33,14 +33,12 @@ async def process_google_account(chat_id, email, password):
     global display
     await send_telegram_message(chat_id, "بدء العملية سيدي. جاري تشغيل الشاشة الوهمية...")
     
-    # تشغيل الشاشة الوهمية (Xvfb)
     if display is None:
         display = Display(visible=0, size=(1920, 1080))
         display.start()
 
     async with async_playwright() as p:
         try:
-            # headless=False لأننا نستخدم شاشة وهمية
             browser = await p.chromium.launch(
                 headless=False, 
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
@@ -57,13 +55,11 @@ async def process_google_account(chat_id, email, password):
             await page.wait_for_timeout(3000)
             await take_screenshot(page, chat_id, "1. صفحة الدخول")
             
-            # كتابة الإيميل ببطء
             await page.locator('input[name="identifier"]').press_sequentially(email, delay=100)
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(6000)
             await take_screenshot(page, chat_id, "2. بعد إدخال الإيميل")
             
-            # كتابة الباسورد
             try:
                 await page.locator('input[type="password"]').first.press_sequentially(password, delay=100)
                 await page.keyboard.press("Enter")
@@ -74,26 +70,26 @@ async def process_google_account(chat_id, email, password):
                 await browser.close()
                 return
 
-            # التحقق من 2FA
+            # 4. التعامل مع التحقق بخطوتين (2FA)
             content = await page.content()
             if "2-Step Verification" in content or "Choose how you want to sign in" in content:
-                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري الضغط على خيار Tap Yes...")
+                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري البحث عن خيار (Tap Yes)...")
                 await take_screenshot(page, chat_id, "4. شاشة التحقق")
                 
-                # محاولة الضغط على خيار Tap Yes
                 try:
-                    tap_yes_btn = page.locator('text="Tap Yes on your phone or tablet"').first
-                    if await tap_yes_btn.is_visible():
-                        await tap_yes_btn.click()
-                        await send_telegram_message(chat_id, "📲 تم اختيار Tap Yes. **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.**")
-                        await page.wait_for_timeout(2000)
-                except:
-                    await send_telegram_message(chat_id, "⚠️ لم أجد خيار Tap Yes، قد تحتاج للتأكيد يدوياً.")
+                    tap_yes = page.locator(':text-matches("Tap Yes|phone or tablet")').first
+                    if await tap_yes.is_visible():
+                        await tap_yes.click()
+                        await send_telegram_message(chat_id, "✅ تم الضغط على خيار (Tap Yes).")
+                        await send_telegram_message(chat_id, "📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.** (انتظر 40 ثانية)...")
+                        await page.wait_for_timeout(40000)
+                except Exception as e:
+                    await send_telegram_message(chat_id, f"⚠️ لم أجد خيار Tap Yes. {str(e)}")
 
-                await send_telegram_message(chat_id, "⚠️ يرجى تأكيد الدخول من هاتفك الآن. اكتب 'done' بعد التأكيد.")
-                
+                await send_telegram_message(chat_id, "⚠️ إذا قمت بالتأكيد من هاتفك، اكتب 'done' الآن للاستكمال.")
                 user_states[chat_id] = "waiting_2fa"
-                for _ in range(120): # انتظار دقيقتين
+                
+                for _ in range(120): # انتظار دقيقتين إضافيتين
                     if user_states.get(chat_id) == "2fa_done":
                         break
                     await asyncio.sleep(1)
@@ -105,10 +101,10 @@ async def process_google_account(chat_id, email, password):
                 await page.wait_for_timeout(5000)
                 await take_screenshot(page, chat_id, "5. بعد تأكيد 2FA")
 
-            # تخطي شاشة الاسترداد إذا ظهرت
+            # 5. تخطي شاشة الاسترداد (Recovery Info)
             content = await page.content()
             if "Make sure you can always sign in" in content or "Add a recovery phone" in content:
-                await send_telegram_message(chat_id, "🔄 ظهرت شاشة استرداد الحساب. جاري تخطيها...")
+                await send_telegram_message(chat_id, "🔄 ظهرت شاشة استرداد الحساب. جاري الضغط على Cancel...")
                 try:
                     cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Dismiss"), button:has-text("إلغاء")').first
                     if await cancel_btn.is_visible():
