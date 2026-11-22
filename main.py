@@ -3,7 +3,6 @@ import httpx
 import os
 import asyncio
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
 from contextlib import asynccontextmanager
 
 BOT_TOKEN = "9032675094:AAGk8zSeWv9ewfztsAATj6_8utGZedynV44"
@@ -28,12 +27,16 @@ async def process_google_account(chat_id, email, password):
     
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.launch(headless=True)
+            # استخدام خدعة تمويه مدمجة بدون مكتبات خارجية
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 720}
             )
             page = await context.new_page()
-            await stealth_async(page)
             
             await page.goto("https://accounts.google.com/", wait_until="networkidle")
             await page.wait_for_timeout(3000)
