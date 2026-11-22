@@ -16,54 +16,81 @@ async def send_telegram_message(chat_id, text):
     async with httpx.AsyncClient() as client:
         await client.post(url, json={"chat_id": chat_id, "text": text})
 
-async def send_telegram_photo(chat_id, photo_path):
+async def send_telegram_photo(chat_id, photo_path, caption=""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     async with httpx.AsyncClient() as client:
         with open(photo_path, "rb") as f:
-            await client.post(url, data={"chat_id": chat_id}, files={"photo": f})
+            await client.post(url, data={"chat_id": chat_id, "caption": caption}, files={"photo": f})
+
+async def take_screenshot(page, chat_id, caption):
+    screenshot_path = f"/tmp/step_{chat_id}.png"
+    await page.screenshot(path=screenshot_path)
+    await send_telegram_photo(chat_id, screenshot_path, caption)
 
 async def process_google_account(chat_id, email, password):
     await send_telegram_message(chat_id, "بدء العملية سيدي. جاري فتح المتصفح الخفي...")
     
     async with async_playwright() as p:
         try:
+            # إعدادات متقدمة لتجاوز كشف البوتات
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--disable-blink-features=AutomationControlled"]
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--disable-gpu"
+                ]
             )
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720}
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
+                timezone_id="Europe/Zurich"
             )
+            
+            # حقن كود لإخفاء البوت
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+            
             page = await context.new_page()
             
             await page.goto("https://accounts.google.com/", wait_until="networkidle")
             await page.wait_for_timeout(3000)
+            await take_screenshot(page, chat_id, "1. تم فتح صفحة جوجل")
             
             try:
-                # محاولة العثور على خانة الإيميل بأي من هذه الطرق
                 email_input = page.locator('input[type="email"], input[name="identifier"], input[autocomplete="username"]')
                 await email_input.first.wait_for(timeout=15000)
                 await email_input.first.fill(email)
+                await take_screenshot(page, chat_id, "2. تم إدخال الإيميل")
+                
                 await page.click('button:has-text("Next")')
                 await page.wait_for_timeout(4000)
+                await take_screenshot(page, chat_id, "3. بعد الضغط على Next")
                 
-                # محاولة العثور على خانة الباسورد
                 password_input = page.locator('input[type="password"], input[name="password"]')
                 await password_input.first.wait_for(timeout=15000)
                 await password_input.first.fill(password)
+                await take_screenshot(page, chat_id, "4. تم إدخال الباسورد")
+                
                 await page.click('button:has-text("Next")')
                 await page.wait_for_timeout(5000)
+                await take_screenshot(page, chat_id, "5. بعد إدخال الباسورد")
                 
             except Exception as e:
-                screenshot_path = f"/tmp/error_{chat_id}.png"
-                await page.screenshot(path=screenshot_path)
-                await send_telegram_photo(chat_id, screenshot_path)
-                await send_telegram_message(chat_id, f"❌ فشل في العثور على خانات الدخول. الخطأ: {str(e)}")
+                await take_screenshot(page, chat_id, f"❌ فشل. الخطأ: {str(e)}")
                 await browser.close()
                 return
 
-            # ... (باقي الكود كما هو)
+            # ... (باقي الكود)
             if "challenge" in page.url or "verify" in page.url:
                 await send_telegram_message(chat_id, "⚠️ مطلوب تحقق 2FA. يرجى تأكيد الدخول من هاتفك، ثم اكتب كلمة 'done' هنا.")
                 user_states[chat_id] = "waiting_2fa"
@@ -82,6 +109,7 @@ async def process_google_account(chat_id, email, password):
             
             await page.goto("https://myaccount.google.com/address", wait_until="networkidle")
             await page.wait_for_timeout(4000)
+            await take_screenshot(page, chat_id, "6. صفحة العناوين")
             
             try:
                 await page.click('text="Add address"', timeout=5000)
@@ -90,6 +118,7 @@ async def process_google_account(chat_id, email, password):
                 await page.fill('input[aria-label="Street address"]', "Bahnhofstrasse 10")
                 await page.fill('input[aria-label="Postal code"]', "8001")
                 await page.fill('input[aria-label="City"]', "Zürich")
+                await take_screenshot(page, chat_id, "7. تم إضافة العنوان")
                 await send_telegram_message(chat_id, "تمت محاولة إضافة العنوان.")
             except Exception as e:
                 await send_telegram_message(chat_id, f"ملاحظة: لم نتمكن من إضافة العنوان تلقائياً. الخطأ: {str(e)}")
@@ -98,6 +127,7 @@ async def process_google_account(chat_id, email, password):
             
             await page.goto("https://play.google.com/store/points", wait_until="networkidle")
             await page.wait_for_timeout(4000)
+            await take_screenshot(page, chat_id, "8. صفحة Play Points")
             
             try:
                 join_btn = page.locator('button:has-text("Join")')
@@ -109,6 +139,7 @@ async def process_google_account(chat_id, email, password):
             except Exception as e:
                 await send_telegram_message(chat_id, f"خطأ أثناء تفعيل النقاط: {str(e)}")
             
+            await take_screenshot(page, chat_id, "9. النتيجة النهائية")
             await send_telegram_message(chat_id, "✅ انتهت العملية سيدي.")
             await browser.close()
             
