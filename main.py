@@ -27,7 +27,6 @@ async def process_google_account(chat_id, email, password):
     
     async with async_playwright() as p:
         try:
-            # استخدام خدعة تمويه مدمجة بدون مكتبات خارجية
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--disable-blink-features=AutomationControlled"]
@@ -42,13 +41,17 @@ async def process_google_account(chat_id, email, password):
             await page.wait_for_timeout(3000)
             
             try:
-                await page.wait_for_selector('input[type="email"]', timeout=10000)
-                await page.fill('input[type="email"]', email)
+                # محاولة العثور على خانة الإيميل بأي من هذه الطرق
+                email_input = page.locator('input[type="email"], input[name="identifier"], input[autocomplete="username"]')
+                await email_input.first.wait_for(timeout=15000)
+                await email_input.first.fill(email)
                 await page.click('button:has-text("Next")')
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(4000)
                 
-                await page.wait_for_selector('input[type="password"]', timeout=10000)
-                await page.fill('input[type="password"]', password)
+                # محاولة العثور على خانة الباسورد
+                password_input = page.locator('input[type="password"], input[name="password"]')
+                await password_input.first.wait_for(timeout=15000)
+                await password_input.first.fill(password)
                 await page.click('button:has-text("Next")')
                 await page.wait_for_timeout(5000)
                 
@@ -56,10 +59,11 @@ async def process_google_account(chat_id, email, password):
                 screenshot_path = f"/tmp/error_{chat_id}.png"
                 await page.screenshot(path=screenshot_path)
                 await send_telegram_photo(chat_id, screenshot_path)
-                await send_telegram_message(chat_id, "❌ فشل في العثور على خانات الدخول. قد يكون بسبب حظر جوجل. (راجع الصورة)")
+                await send_telegram_message(chat_id, f"❌ فشل في العثور على خانات الدخول. الخطأ: {str(e)}")
                 await browser.close()
                 return
 
+            # ... (باقي الكود كما هو)
             if "challenge" in page.url or "verify" in page.url:
                 await send_telegram_message(chat_id, "⚠️ مطلوب تحقق 2FA. يرجى تأكيد الدخول من هاتفك، ثم اكتب كلمة 'done' هنا.")
                 user_states[chat_id] = "waiting_2fa"
