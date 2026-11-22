@@ -95,11 +95,21 @@ async def process_google_account(chat_id, email, password):
                         for i in range(30, 0, -1):
                             await page.wait_for_timeout(1000)
                             current_url = page.url
-                            current_content = await page.content()
                             
-                            if "myaccount.google.com" in current_url or "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
+                            # التحقق من الرابط أولاً
+                            if "myaccount.google.com" in current_url:
                                 logged_in = True
                                 break
+                                
+                            # محاولة قراءة المحتوى بأمان
+                            try:
+                                current_content = await page.content()
+                                if "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
+                                    logged_in = True
+                                    break
+                            except Exception:
+                                # إذا كانت الصفحة تتنقل، نتجاهل الخطأ ونستمر
+                                pass
                                 
                             # تحديث العداد كل 5 ثوانٍ
                             if i % 5 == 0 or i <= 5:
@@ -116,17 +126,20 @@ async def process_google_account(chat_id, email, password):
                     return
 
             # 5. تخطي شاشة الاسترداد (Recovery Info)
-            content = await page.content()
-            if "Make sure you can always sign in" in content or "ضمان إمكانية تسجيل الدخول" in content:
-                await send_telegram_message(chat_id, "🔄 تم الدخول بنجاح! جاري تخطي شاشة ضمان الدخول...")
-                try:
-                    cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("إلغاء"), button:has-text("Dismiss")').first
-                    if await cancel_btn.is_visible():
-                        await cancel_btn.click()
-                        await page.wait_for_timeout(3000)
-                except: pass
-                await page.go_back()
-                await page.wait_for_timeout(2000)
+            try:
+                content = await page.content()
+                if "Make sure you can always sign in" in content or "ضمان إمكانية تسجيل الدخول" in content:
+                    await send_telegram_message(chat_id, "🔄 تم الدخول بنجاح! جاري تخطي شاشة ضمان الدخول...")
+                    try:
+                        cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("إلغاء"), button:has-text("Dismiss")').first
+                        if await cancel_btn.is_visible():
+                            await cancel_btn.click()
+                            await page.wait_for_timeout(3000)
+                    except: pass
+                    await page.go_back()
+                    await page.wait_for_timeout(2000)
+            except Exception:
+                pass
 
             await take_screenshot(page, chat_id, "5. النتيجة النهائية")
             await send_telegram_message(chat_id, "🎉 **نجاح! تم تسجيل الدخول بالكامل سيدي. البوت جاهز للخطوات التالية.**")
