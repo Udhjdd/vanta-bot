@@ -47,12 +47,11 @@ async def process_google_account(chat_id, email, password):
                 user_agent="Mozilla/5.0 (Linux; Android 13; Pixel 9 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                 viewport={"width": 412, "height": 915},
                 is_mobile=True, has_touch=True,
-                locale="en-US" # فرض اللغة الإنجليزية
+                locale="en-US"
             )
             await context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             page = await context.new_page()
 
-            # إضافة hl=en لفرض اللغة الإنجليزية
             await page.goto("https://accounts.google.com/signin?hl=en", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
             await take_screenshot(page, chat_id, "1. صفحة الدخول")
@@ -72,94 +71,59 @@ async def process_google_account(chat_id, email, password):
                 await browser.close()
                 return
 
-            # 4. التعامل مع التحقق بخطوتين (2FA)
+            # 4. التحقق الذكي من 2FA
             content = await page.content()
             if "2-Step Verification" in content or "Choose how you want to sign in" in content or "التحقق بخطوتين" in content:
-                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري البحث عن خيار (Tap Yes)...")
+                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري الضغط على Tap Yes...")
                 await take_screenshot(page, chat_id, "4. شاشة التحقق")
                 
                 try:
                     tap_yes = page.locator(':text-matches("Tap Yes|phone or tablet|الضغط على نعم")').first
                     if await tap_yes.is_visible():
                         await tap_yes.click()
-                        await send_telegram_message(chat_id, "✅ تم الضغط على خيار (Tap Yes).")
-                        await send_telegram_message(chat_id, "📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.** (انتظر 40 ثانية)...")
-                        await page.wait_for_timeout(40000)
+                        await send_telegram_message(chat_id, "📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.** لديك 30 ثانية...")
+                        
+                        # عداد 30 ثانية ذكي
+                        logged_in = False
+                        for i in range(30):
+                            await page.wait_for_timeout(1000)
+                            current_url = page.url
+                            current_content = await page.content()
+                            
+                            # التحقق من واجهة الحساب الرئيسية
+                            if "myaccount.google.com" in current_url:
+                                logged_in = True
+                                break
+                            # التحقق من شاشة ضمان إمكانية الدخول (Recovery Info)
+                            if "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
+                                logged_in = True
+                                break
+                                
+                        if not logged_in:
+                            await send_telegram_message(chat_id, "❌ انتهت الـ 30 ثانية ولم يتم تأكيد الدخول من هاتفك. تم إلغاء العملية.")
+                            await browser.close()
+                            return
                 except Exception as e:
-                    await send_telegram_message(chat_id, f"⚠️ لم أجد خيار Tap Yes. {str(e)}")
-
-                await send_telegram_message(chat_id, "⚠️ إذا قمت بالتأكيد من هاتفك، اكتب 'done' الآن للاستكمال.")
-                user_states[chat_id] = "waiting_2fa"
-                
-                for _ in range(120): 
-                    if user_states.get(chat_id) == "2fa_done":
-                        break
-                    await asyncio.sleep(1)
-                
-                if user_states.get(chat_id) != "2fa_done":
-                    await send_telegram_message(chat_id, "انتهى وقت الانتظار. تم إلغاء العملية.")
+                    await send_telegram_message(chat_id, f"⚠️ فشل في عملية 2FA: {str(e)}")
                     await browser.close()
                     return
-                await page.wait_for_timeout(5000)
-                await take_screenshot(page, chat_id, "5. بعد تأكيد 2FA")
 
-            # 5. تخطي شاشة الاسترداد (Recovery Info) - تم دعم العربية والإنجليزية
+            # 5. تخطي شاشة الاسترداد (Recovery Info)
             content = await page.content()
             if "Make sure you can always sign in" in content or "ضمان إمكانية تسجيل الدخول" in content:
-                await send_telegram_message(chat_id, "🔄 ظهرت شاشة استرداد الحساب. جاري الضغط على Cancel/إلغاء...")
+                await send_telegram_message(chat_id, "🔄 تم الدخول بنجاح! جاري تخطي شاشة ضمان الدخول...")
                 try:
-                    # محاولة الضغط على إلغاء أو تخطي
                     cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("إلغاء"), button:has-text("Dismiss")').first
                     if await cancel_btn.is_visible():
                         await cancel_btn.click()
                         await page.wait_for_timeout(3000)
                 except: pass
-                # محاولة الضغط على زر الرجوع كخطة بديلة
                 await page.go_back()
                 await page.wait_for_timeout(2000)
 
-            await take_screenshot(page, chat_id, "6. بعد تسجيل الدخول")
+            await take_screenshot(page, chat_id, "5. النتيجة النهائية")
+            await send_telegram_message(chat_id, "🎉 **نجاح! تم تسجيل الدخول بالكامل سيدي. البوت جاهز للخطوات التالية.**")
             
-            if "myaccount.google.com" in page.url or "Google Account" in content:
-                await send_telegram_message(chat_id, "🎉 نجاح! تم تسجيل الدخول بنجاح. جاري إضافة العنوان السويسري...")
-                
-                # تصحيح رابط العناوين وإجبار اللغة الإنجليزية
-                await page.goto("https://myaccount.google.com/address?hl=en", wait_until="networkidle")
-                await page.wait_for_timeout(4000)
-                await take_screenshot(page, chat_id, "7. صفحة العناوين")
-                
-                try:
-                    await page.click('text="Add address", text="إضافة عنوان"', timeout=5000)
-                    await page.wait_for_timeout(2000)
-                    await page.fill('input[aria-label="Full name"], input[aria-label="الاسم الكامل"]', "Vanta User")
-                    await page.fill('input[aria-label="Street address"], input[aria-label="عنوان الشارع"]', "Bahnhofstrasse 10")
-                    await page.fill('input[aria-label="Postal code"], input[aria-label="الرمز البريدي"]', "8001")
-                    await page.fill('input[aria-label="City"], input[aria-label="المدينة"]', "Zürich")
-                    await take_screenshot(page, chat_id, "8. تم إضافة العنوان")
-                    await send_telegram_message(chat_id, "تمت محاولة إضافة العنوان.")
-                except Exception as e:
-                    await send_telegram_message(chat_id, f"ملاحظة: لم نتمكن من إضافة العنوان تلقائياً. الخطأ: {str(e)}")
-
-                await send_telegram_message(chat_id, "جاري التوجه لمتجر بلاي لتفعيل النقاط...")
-                await page.goto("https://play.google.com/store/points?hl=en", wait_until="networkidle")
-                await page.wait_for_timeout(4000)
-                await take_screenshot(page, chat_id, "9. صفحة Play Points")
-                
-                try:
-                    join_btn = page.locator('button:has-text("Join"), button:has-text("انضمام")')
-                    if await join_btn.count() > 0:
-                        await join_btn.first.click()
-                        await send_telegram_message(chat_id, "تم الضغط على Join. (قد تحتاج لإضافة بطاقة دفع).")
-                    else:
-                        await send_telegram_message(chat_id, "لم يتم العثور على زر Join. قد يكون الحساب مؤهلاً بالفعل.")
-                except Exception as e:
-                    await send_telegram_message(chat_id, f"خطأ أثناء تفعيل النقاط: {str(e)}")
-                
-                await take_screenshot(page, chat_id, "10. النتيجة النهائية")
-                await send_telegram_message(chat_id, "✅ انتهت العملية سيدي.")
-            else:
-                await send_telegram_message(chat_id, "⚠️ يبدو أن تسجيل الدخول لم يكتمل. راجع الصور.")
-
             await browser.close()
             
         except Exception as e:
@@ -184,10 +148,7 @@ async def telegram_webhook(request: Request):
         text = data["message"]["text"]
         if chat_id != MY_CHAT_ID:
             return {"ok": True}
-        if text == "done" and user_states.get(chat_id) == "waiting_2fa":
-            user_states[chat_id] = "2fa_done"
-            await send_telegram_message(chat_id, "تم استلام التأكيد. جاري الاستكمال...")
-            return {"ok": True}
+        
         lines = text.strip().split('\n')
         if len(lines) >= 2:
             email = lines[0].strip()
