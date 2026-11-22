@@ -16,7 +16,13 @@ display = None
 async def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     async with httpx.AsyncClient() as client:
-        await client.post(url, json={"chat_id": chat_id, "text": text})
+        res = await client.post(url, json={"chat_id": chat_id, "text": text})
+        return res.json()
+
+async def edit_telegram_message(chat_id, message_id, text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json={"chat_id": chat_id, "message_id": message_id, "text": text})
 
 async def send_telegram_photo(chat_id, photo_path, caption=""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -71,7 +77,7 @@ async def process_google_account(chat_id, email, password):
                 await browser.close()
                 return
 
-            # 4. التحقق الذكي من 2FA
+            # 4. التحقق الذكي من 2FA مع عداد تنازلي
             content = await page.content()
             if "2-Step Verification" in content or "Choose how you want to sign in" in content or "التحقق بخطوتين" in content:
                 await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري الضغط على Tap Yes...")
@@ -81,24 +87,25 @@ async def process_google_account(chat_id, email, password):
                     tap_yes = page.locator(':text-matches("Tap Yes|phone or tablet|الضغط على نعم")').first
                     if await tap_yes.is_visible():
                         await tap_yes.click()
-                        await send_telegram_message(chat_id, "📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.** لديك 30 ثانية...")
                         
-                        # عداد 30 ثانية ذكي
+                        msg_res = await send_telegram_message(chat_id, "📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.**\nالوقت المتبقي: 30 ثانية...")
+                        msg_id = msg_res.get("result", {}).get("message_id")
+                        
                         logged_in = False
-                        for i in range(30):
+                        for i in range(30, 0, -1):
                             await page.wait_for_timeout(1000)
                             current_url = page.url
                             current_content = await page.content()
                             
-                            # التحقق من واجهة الحساب الرئيسية
-                            if "myaccount.google.com" in current_url:
-                                logged_in = True
-                                break
-                            # التحقق من شاشة ضمان إمكانية الدخول (Recovery Info)
-                            if "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
+                            if "myaccount.google.com" in current_url or "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
                                 logged_in = True
                                 break
                                 
+                            # تحديث العداد كل 5 ثوانٍ
+                            if i % 5 == 0 or i <= 5:
+                                if msg_id:
+                                    await edit_telegram_message(chat_id, msg_id, f"📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.**\nالوقت المتبقي: {i} ثانية...")
+                                    
                         if not logged_in:
                             await send_telegram_message(chat_id, "❌ انتهت الـ 30 ثانية ولم يتم تأكيد الدخول من هاتفك. تم إلغاء العملية.")
                             await browser.close()
