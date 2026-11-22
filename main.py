@@ -35,6 +35,19 @@ async def take_screenshot(page, chat_id, caption):
     await page.screenshot(path=screenshot_path)
     await send_telegram_photo(chat_id, screenshot_path, caption)
 
+async def get_swiss_proxy():
+    # جلب بروكسي سويسري مجاني
+    url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=ch&ssl=all&anonymity=all"
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(url, timeout=10)
+            proxies = res.text.strip().split('\r\n')
+            if proxies and len(proxies[0]) > 5:
+                return proxies[0]
+    except Exception:
+        pass
+    return None
+
 async def process_google_account(chat_id, email, password):
     global display
     await send_telegram_message(chat_id, "بدء العملية سيدي. جاري تشغيل الشاشة الوهمية...")
@@ -45,19 +58,38 @@ async def process_google_account(chat_id, email, password):
 
     async with async_playwright() as p:
         try:
+            # جلب بروكسي سويسري
+            await send_telegram_message(chat_id, "🌐 جاري البحث عن بروكسي سويسري...")
+            proxy_ip = await get_swiss_proxy()
+            
             browser = await p.chromium.launch(
                 headless=False, 
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Linux; Android 13; Pixel 9 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-                viewport={"width": 412, "height": 915},
-                is_mobile=True, has_touch=True,
-                locale="en-US"
-            )
+            
+            context_args = {
+                "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 9 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "viewport": {"width": 412, "height": 915},
+                "is_mobile": True, 
+                "has_touch": True,
+                "locale": "en-US"
+            }
+            
+            if proxy_ip:
+                await send_telegram_message(chat_id, f"✅ تم العثور على بروكسي: {proxy_ip}. جاري الاتصال...")
+                context_args["proxy"] = {"server": f"http://{proxy_ip}"}
+            else:
+                await send_telegram_message(chat_id, "⚠️ لم يتم العثور على بروكسي سويسري مجاني. سأكمل بدون بروكسي (قد لا تظهر النقاط).")
+
+            context = await browser.new_context(**context_args)
             await context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
             page = await context.new_page()
 
+            # التحقق من الـ IP
+            await page.goto("https://ipinfo.io/json", wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
+            await take_screenshot(page, chat_id, "0. فحص الـ IP")
+            
             await page.goto("https://accounts.google.com/signin?hl=en", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
             await take_screenshot(page, chat_id, "1. صفحة الدخول")
@@ -96,22 +128,18 @@ async def process_google_account(chat_id, email, password):
                             await page.wait_for_timeout(1000)
                             current_url = page.url
                             
-                            # التحقق من الرابط أولاً
                             if "myaccount.google.com" in current_url:
                                 logged_in = True
                                 break
                                 
-                            # محاولة قراءة المحتوى بأمان
                             try:
                                 current_content = await page.content()
                                 if "Make sure you can always sign in" in current_content or "ضمان إمكانية تسجيل الدخول" in current_content:
                                     logged_in = True
                                     break
                             except Exception:
-                                # إذا كانت الصفحة تتنقل، نتجاهل الخطأ ونستمر
                                 pass
                                 
-                            # تحديث العداد كل 5 ثوانٍ
                             if i % 5 == 0 or i <= 5:
                                 if msg_id:
                                     await edit_telegram_message(chat_id, msg_id, f"📲 **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.**\nالوقت المتبقي: {i} ثانية...")
