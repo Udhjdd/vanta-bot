@@ -77,8 +77,20 @@ async def process_google_account(chat_id, email, password):
             # التحقق من 2FA
             content = await page.content()
             if "2-Step Verification" in content or "Choose how you want to sign in" in content:
-                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! يرجى تأكيد الدخول من هاتفك الآن. اكتب 'done' بعد التأكيد.")
+                await send_telegram_message(chat_id, "🔑 وصلت لشاشة التحقق! جاري الضغط على خيار Tap Yes...")
                 await take_screenshot(page, chat_id, "4. شاشة التحقق")
+                
+                # محاولة الضغط على خيار Tap Yes
+                try:
+                    tap_yes_btn = page.locator('text="Tap Yes on your phone or tablet"').first
+                    if await tap_yes_btn.is_visible():
+                        await tap_yes_btn.click()
+                        await send_telegram_message(chat_id, "📲 تم اختيار Tap Yes. **افتح هاتفك الآن واضغط على إشعار جوجل لتأكيد الدخول.**")
+                        await page.wait_for_timeout(2000)
+                except:
+                    await send_telegram_message(chat_id, "⚠️ لم أجد خيار Tap Yes، قد تحتاج للتأكيد يدوياً.")
+
+                await send_telegram_message(chat_id, "⚠️ يرجى تأكيد الدخول من هاتفك الآن. اكتب 'done' بعد التأكيد.")
                 
                 user_states[chat_id] = "waiting_2fa"
                 for _ in range(120): # انتظار دقيقتين
@@ -91,6 +103,7 @@ async def process_google_account(chat_id, email, password):
                     await browser.close()
                     return
                 await page.wait_for_timeout(5000)
+                await take_screenshot(page, chat_id, "5. بعد تأكيد 2FA")
 
             # تخطي شاشة الاسترداد إذا ظهرت
             content = await page.content()
@@ -103,14 +116,14 @@ async def process_google_account(chat_id, email, password):
                         await page.wait_for_timeout(3000)
                 except: pass
 
-            await take_screenshot(page, chat_id, "5. بعد تسجيل الدخول")
+            await take_screenshot(page, chat_id, "6. بعد تسجيل الدخول")
             
             if "myaccount.google.com" in page.url or "Google Account" in content:
                 await send_telegram_message(chat_id, "🎉 نجاح! تم تسجيل الدخول بنجاح. جاري إضافة العنوان السويسري...")
                 
                 await page.goto("https://myaccount.google.com/address", wait_until="networkidle")
                 await page.wait_for_timeout(4000)
-                await take_screenshot(page, chat_id, "6. صفحة العناوين")
+                await take_screenshot(page, chat_id, "7. صفحة العناوين")
                 
                 try:
                     await page.click('text="Add address"', timeout=5000)
@@ -119,7 +132,7 @@ async def process_google_account(chat_id, email, password):
                     await page.fill('input[aria-label="Street address"]', "Bahnhofstrasse 10")
                     await page.fill('input[aria-label="Postal code"]', "8001")
                     await page.fill('input[aria-label="City"]', "Zürich")
-                    await take_screenshot(page, chat_id, "7. تم إضافة العنوان")
+                    await take_screenshot(page, chat_id, "8. تم إضافة العنوان")
                     await send_telegram_message(chat_id, "تمت محاولة إضافة العنوان.")
                 except Exception as e:
                     await send_telegram_message(chat_id, f"ملاحظة: لم نتمكن من إضافة العنوان تلقائياً. الخطأ: {str(e)}")
@@ -127,7 +140,7 @@ async def process_google_account(chat_id, email, password):
                 await send_telegram_message(chat_id, "جاري التوجه لمتجر بلاي لتفعيل النقاط...")
                 await page.goto("https://play.google.com/store/points", wait_until="networkidle")
                 await page.wait_for_timeout(4000)
-                await take_screenshot(page, chat_id, "8. صفحة Play Points")
+                await take_screenshot(page, chat_id, "9. صفحة Play Points")
                 
                 try:
                     join_btn = page.locator('button:has-text("Join")')
@@ -139,7 +152,7 @@ async def process_google_account(chat_id, email, password):
                 except Exception as e:
                     await send_telegram_message(chat_id, f"خطأ أثناء تفعيل النقاط: {str(e)}")
                 
-                await take_screenshot(page, chat_id, "9. النتيجة النهائية")
+                await take_screenshot(page, chat_id, "10. النتيجة النهائية")
                 await send_telegram_message(chat_id, "✅ انتهت العملية سيدي.")
             else:
                 await send_telegram_message(chat_id, "⚠️ يبدو أن تسجيل الدخول لم يكتمل. راجع الصور.")
